@@ -1,0 +1,5 @@
+{
+  "Animals": ["elephant", "giraffe", "penguin", "dolphin", "butterfly", "crocodile", "rabbit", "octopus", "turtle", "lion"],
+  "Technology": ["computer", "keyboard", "mouse", "robot", "headphones", "camera", "printer", "satellite", "smartphone", "light bulb"],
+  "Food": ["pizza", "burger", "ice cream", "banana", "sandwich", "pancake", "popcorn", "watermelon", "spaghetti", "cupcake"]
+}

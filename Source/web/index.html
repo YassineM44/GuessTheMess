@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f4f0e8">
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem('gtm-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')}catch{}</script>
+  <title>Guess The Mess — a little drawing, a lot of guessing</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/personality.css">
+  <script defer src="/static/experience.js"></script>
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="Guess The Mess home"><span class="brand-icon">✳</span><span>guess<span class="brand-light"> the mess</span><small>GOOD COMPANY. QUESTIONABLE DRAWINGS.</small></span></a>
+  <div class="top-right"><span class="pill"><i></i> MESSY DRAWINGS. SERIOUS RIVALRIES.</span><button id="soundButton" class="icon-btn" aria-label="Mute sound" aria-pressed="false" title="Mute sound">♫</button><button id="themeButton" class="icon-btn" aria-label="Switch to dark mode" aria-pressed="false" title="Switch theme">☾</button><button id="helpButton" class="icon-btn" aria-label="How to play">?</button></div>
+</header>
+
+<main id="entry" class="entry">
+  <section class="intro">
+    <div class="eyebrow"><span class="tiny-star">✦</span> YOUR NEXT GREAT GUESS STARTS HERE</div>
+    <h1>Guess it.<br><span class="mess-title">Make a mess.</span><br><em>Blame your friends.</em></h1>
+    <p class="intro-copy">One friend draws. Everyone else guesses.<br>You don’t need to be an artist. Just a little quick.</p>
+    <div class="artboard" aria-hidden="true">
+      <span class="sticker sticker-one">is that a…?</span>
+      <svg viewBox="0 0 510 205" fill="none"><path d="M53 171Q91 135 110 166M44 178H158" stroke="#4989ed" stroke-width="5" stroke-linecap="round"/><path d="M80 149L88 88 108 104 132 84 143 149Q115 170 80 149Z" fill="#f7d34c" stroke="#242636" stroke-width="4" stroke-linejoin="round"/><circle cx="104" cy="124" r="3" fill="#242636"/><circle cx="126" cy="124" r="3" fill="#242636"/><path d="M110 139Q116 146 122 137M266 61C244 22 207 62 232 84L276 121 306 70C323 37 280 22 266 61Z" stroke="#ef5261" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M360 142L383 70 447 92 424 161Z" fill="#c7b9f3" stroke="#242636" stroke-width="4"/><path d="M389 81L405 46 429 53 417 90M372 112L435 134" stroke="#242636" stroke-width="4"/><path d="M177 143L187 132M183 162L202 158M167 123L170 108M319 155L327 168M343 145L360 149" stroke="#242636" stroke-width="3" stroke-linecap="round"/></svg>
+      <span class="sticker sticker-two">+100. nailed it.</span>
+    </div>
+    <div class="quick-facts"><span>↗ 2–5 friends</span><span>◷ 80 seconds</span><span>✎ Zero artistic talent required</span></div>
+  </section>
+
+  <section class="entry-card">
+    <div class="card-kicker">PULL UP A CHAIR</div><h2>Let’s make a mess.</h2><p class="muted">Your next game is one nickname away.</p>
+    <div class="tabs" role="tablist" aria-label="Join or host"><button id="joinTab" role="tab" aria-selected="true">Join a room</button><button id="createTab" role="tab" aria-selected="false">Host a game</button></div>
+    <form id="entryForm">
+      <label for="nickname">YOUR NICKNAME</label><input id="nickname" name="nickname" maxlength="20" required placeholder="What should we call you?" autocomplete="nickname">
+      <label>CHOOSE YOUR LITTLE WEIRDO</label><div id="avatarPicker" class="avatar-picker" role="group" aria-label="Choose your avatar"></div>
+      <div id="joinFields"><label for="roomCode">ROOM CODE</label><input id="roomCode" maxlength="6" minlength="6" placeholder="e.g. A7C921" autocomplete="off" spellcheck="false" required></div>
+      <div id="createFields" hidden><label for="roomName">ROOM NAME</label><input id="roomName" maxlength="40" placeholder="The doodle department" value="The doodle department"><label>HOW WILL FRIENDS CONNECT?</label><div class="connection-picker" role="group" aria-label="Room connection mode"><button type="button" data-connection="lan" aria-pressed="true">⌂ Wi-Fi / LAN</button><button type="button" data-connection="tailscale" aria-pressed="false">↗ Tailscale</button></div><div class="connection-check"><span id="networkMessage" role="status">Checking the host’s connections…</span><button type="button" id="refreshNetwork" class="quiet">Refresh</button></div><label id="addressLabel" for="inviteAddress" hidden>HOST NETWORK ADDRESS</label><select id="inviteAddress" aria-label="Host network address" hidden></select><p class="connection-fixed">Chosen once for this room. Create a new room to change it.</p><label>CHOOSE YOUR THEME</label><div class="themes"><button type="button" data-theme="Animals" class="selected"><span>♞</span>Animals</button><button type="button" data-theme="Technology"><span>⌘</span>Technology</button><button type="button" data-theme="Food"><span>◒</span>Food</button></div></div>
+      <button id="enterButton" class="primary" type="submit">Join the fun <span>↗</span></button>
+    </form>
+    <div id="entryMessage" class="form-message" role="status"></div>
+    <p class="fine-print">No accounts. No passwords. Just your people.</p>
+  </section>
+</main>
+
+<main id="game" class="game" hidden>
+  <div class="room-header"><div><div class="eyebrow" id="roomTheme">THE DRAWING ROOM</div><h2 id="roomTitle"></h2><div class="room-connection"><span id="connectionModeLabel"></span><code id="inviteLink"></code></div></div><div class="room-actions"><button id="shareButton" class="secondary">Copy invite ↗</button><button id="leaveButton" class="quiet">Leave room</button></div></div>
+  <div id="pauseBanner" class="pause-banner" hidden><div><strong>Taking a little pause.</strong><span id="pauseText"></span></div><div id="pauseControls"><button id="waitButton" class="secondary">Wait for them</button><button id="continueButton" class="primary compact">Continue without them</button></div></div>
+  <div id="connectionBanner" class="connection-banner" hidden>Connection lost. Trying to return to your room…</div>
+  <div class="play-layout">
+    <aside class="player-panel panel"><div class="panel-heading"><h3>🏁 The leaderboard</h3><span id="playerCount" class="small-tag">0 / 5</span></div><div id="players"></div><div class="score-guide"><span class="eyebrow">A GOOD GUESS GOES FAR</span><div><b>1st</b> 100 <b>2nd</b> 80</div><div><b>3rd</b> 50 <b>4th</b> 45</div><p>Drawer: +20 for each player who doesn’t guess.</p></div><div class="room-code-box"><span>ROOM CODE</span><strong id="codeDisplay"></strong></div></aside>
+    <section class="canvas-panel panel">
+      <div class="turn-bar"><div><span id="roundLabel" class="eyebrow">WAITING ROOM</span><strong id="turnLabel">Gather your people.</strong></div><div id="timer" class="timer">—</div></div>
+      <div class="time-track" aria-hidden="true"><div id="timeFill"></div></div>
+      <div id="wordBar" class="word-bar"><span id="wordCaption">A little imagination goes a long way.</span><strong id="wordMask"></strong></div>
+      <div class="canvas-stage"><canvas id="canvas" width="960" height="640" aria-label="Shared drawing canvas"></canvas><canvas id="overlay" width="960" height="640" aria-label="Draw here when it is your turn"></canvas>
+        <div id="stageCover" class="stage-cover"><div id="stageContent"></div></div>
+      </div>
+      <div class="toolbar"><div id="colors" class="colors" aria-label="Brush colors"></div><span class="tool-divider"></span><div class="tools"><button data-tool="brush" class="active" aria-label="Brush" title="Brush">✎</button><button data-tool="fill" aria-label="Bucket fill" title="Bucket fill">▨</button><button data-tool="eraser" aria-label="Eraser" title="Eraser">▱</button></div><button id="clearButton" class="quiet clear-btn">Clear</button><span id="drawHint" class="draw-hint">Make yourself comfortable.</span></div>
+    </section>
+    <aside class="chat-panel panel"><div class="panel-heading"><h3>💬 The guess pit</h3><span class="chat-dot"></span></div><p class="chat-subtitle">Confidently incorrect? You’re in good company.</p><div id="chatLog" class="chat-log" role="log" aria-live="polite"><div class="chat-welcome">Say hello. Then trust your instincts.</div></div><div id="guessFeedback" class="guess-feedback" role="status"></div><form id="chatForm" class="chat-form"><label class="sr-only" for="chatInput">Chat or guess</label><input id="chatInput" maxlength="200" placeholder="Type a guess…" autocomplete="off"><button aria-label="Send message" type="submit">↑</button></form><div id="chatHint" class="chat-hint">Correct answers stay secret.</div></aside>
+  </div>
+  <div class="network-strip"><span id="tcpStatus">● TCP connecting</span><span id="udpStatus">● UDP connecting</span><button id="repairButton" class="quiet">Repair UDP</button><button id="diagnosticsButton" class="quiet">Network details</button><span class="network-note">A little drawing. A lot of guessing.</span></div>
+  <div id="diagnostics" class="diagnostics" hidden></div>
+</main>
+<footer id="footer"><span>A LITTLE DRAWING. A LOT OF GUESSING.</span><span>Made for the wonderfully unartistic. ✦</span></footer>
+<div id="toast" class="toast" role="status" hidden></div>
+<div id="celebration" class="celebration" aria-hidden="true"></div>
+<dialog id="helpDialog"><button id="closeHelp" class="dialog-close" aria-label="Close instructions">×</button><div class="eyebrow">THE ART OF A GOOD GUESS</div><h2>Draw. Guess. Repeat.</h2><p>Join with 2–5 players. The host chooses a theme, then everyone draws once in a random order. Every turn uses a different word.</p><p>You have 80 seconds per turn. A hint letter appears with 60, 40, and 20 seconds left. Guess in chat: 100, 80, 50, or 45 points, in order.</p><p>The drawer earns 20 points per unsuccessful guesser. Correct guesses stay hidden; successful guessers sit out chat until the next turn. Spelling and spaces matter. Capitalization doesn’t.</p><p>If someone disconnects, the game freezes. The host can wait or continue without them. Highest total score wins; ties share a place.</p><button id="helpDone" class="primary">Got it. Let’s play.</button></dialog>
+</body>
+</html>
