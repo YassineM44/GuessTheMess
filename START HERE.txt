@@ -1,0 +1,682 @@
+GUESS THE MESS
+HOST, PLAYER AND NETWORKS PRESENTATION GUIDE
+===========================================
+
+This file explains how to run the game and how to present its implementation.
+Sections 1-3 are operating instructions. Sections 4-10 explain the project.
+Sections 11-12 help with the live demonstration and questions.
+
+CONTENTS
+--------
+ 1. Host a game on Wi-Fi / LAN
+ 2. Join a game as a player
+ 3. Tailscale: play across different networks
+ 4. Game rules and personal controls
+ 5. Every file and its purpose
+ 6. Python, libraries, source launchers and the EXE
+ 7. Client-server architecture and startup timeline
+ 8. TCP and UDP: actual usage and justification
+ 9. Code walkthroughs: a guess and a drawing
+10. Concurrency, authority, disconnects and limits
+11. Presentation and live demonstration plan
+12. Likely questions, troubleshooting and references
+
+
+1. HOST A GAME ON WI-FI / LAN
+============================
+
+What the host needs:
+- A Windows 10/11 x64 PC, GuessTheMess.exe, and a compatible browser such as
+  Edge, Chrome or Firefox. The host can play in their browser too.
+- A network connection reachable by the other players.
+- No separately installed Python, libraries, Thonny, or other IDE for the EXE.
+
+Step 1: Connect the computers.
+Connect the host and players to the same Wi-Fi, hotspot, or suitable wired
+LAN. Devices must be allowed to communicate. Campus/guest Wi-Fi sometimes
+isolates clients even when they are connected to the same network.
+
+Step 2: Launch the server.
+Double-click GuessTheMess.exe. Extract it first if you received it in a ZIP.
+Allow a few seconds for startup. Do not launch multiple copies repeatedly.
+A console stays open and a browser should open automatically.
+
+Step 3: Allow network access if necessary.
+If Windows Firewall prompts, allow the actual server on the network profile
+approved for your demonstration. The website/chat need TCP access, while
+drawing also needs UDP access. Do not disable the whole firewall.
+
+Step 4: Open the page.
+If the browser did not open, type an address printed in the console into
+your browser. On the hosting PC, http://localhost:8000 also works when the
+default port is used. Localhost refers to THIS computer, not a remote host.
+
+Step 5: Choose Host a game.
+Enter your nickname, select an avatar, and enter a room name.
+
+Step 6: Choose the connection mode BEFORE creating the room.
+Select Wi-Fi / LAN under How will friends connect? The form checks current
+host addresses. If several are available, choose the correct host network
+address from the dropdown. Use Refresh after changing the host's network.
+The choice stays fixed for the room, including rematches. Create a NEW room
+if you want to change from LAN to Tailscale or back.
+
+Step 7: Choose a theme and create the room.
+Choose Animals, Technology, or Food, then press the creation button.
+
+Step 8: Send the invite.
+Click Copy invite in the waiting room and send the link to your players.
+The room displays its selected connection mode, invite address and code.
+Copy invite uses the chosen host address even if you opened localhost.
+If clipboard copying is unavailable, a prompt provides manual copying.
+Do not give other players a localhost link: it points to their own PCs.
+
+Step 9: Wait for the crew.
+Players enter nicknames and join. At least two and at most five players can
+start. All must have ready UDP connections before Start becomes available.
+
+Step 10: Start and play.
+The host presses Start. Keep the server console open for the entire game.
+The host's browser is a player client, just like the other browsers.
+
+Step 11: Finish or replay.
+Final results show ranks and totals. The host can start a rematch, which
+resets scores and selects words/order again. The room's connection mode
+stays the same.
+
+Step 12: Stop the server.
+Press Ctrl+C in the console or close that console. This ends the server's
+sessions for everyone. Rooms and scores are memory-only and are not saved.
+
+
+2. JOIN A GAME AS A PLAYER
+=========================
+
+Players need only a compatible browser and a reachable host. They do NOT
+need the EXE, Source folder, Python, or Python libraries.
+
+Step 1: Connect appropriately.
+For LAN mode, connect to a network that can reach the host on that LAN.
+For Tailscale mode, complete section 3's Tailscale setup first.
+
+Step 2: Open the host's invite.
+The link identifies the server address, port and room code. The room-code
+field should already be filled in. Alternatively, open the host's server
+address and enter the room code manually.
+
+Step 3: Identify yourself.
+Enter a nickname and choose an avatar. Click Join the fun. Nicknames must
+be unique in the room. There is no permanent account or password.
+
+Step 4: Wait for the host.
+Check that your name appears and the TCP and UDP indicators are ready.
+The host starts once everyone is connected.
+
+Step 5: Guess when another player draws.
+Type into chat and press Enter or send. Ordinary wrong guesses appear in
+chat. Correct answers stay hidden; near misses get private Close one
+feedback without points.
+
+Step 6: Draw when assigned.
+Your secret word appears above the canvas. Use the brush, colors, bucket,
+eraser or clear control. Draw its meaning rather than writing its name.
+The drawer cannot send chat messages during their turn.
+
+Step 7: If disconnected, return in the SAME tab if possible.
+The tab attempts automatic reconnection. Refreshing the same tab can restore
+the session too. Closing the tab may lose its stored identity. If the host
+continued without you, rejoin after the current game finishes.
+
+Only the actual server PC runs the EXE. Do not start a separate server on
+each player's computer.
+
+
+3. TAILSCALE: PLAY ACROSS DIFFERENT NETWORKS
+==========================================
+
+A tailnet is a private network connecting authorized devices. It is not the
+game server. The game still runs on the host's PC. Tailscale does not put
+players onto the host's Wi-Fi; they remain on their own internet connections.
+
+Step 1: Install Tailscale separately.
+Install it on the host and every player using this connection. Sign in and
+arrange access to the same tailnet, or appropriate device-sharing access.
+Use authorized accounts; knowing the game link is not tailnet permission.
+
+Step 2: Connect and permit communication.
+Connect Tailscale on those devices. Access policies and local firewalls must
+allow the game connections. Allowing only TCP port 8000 is not enough for
+drawing, which uses dynamically allocated UDP ports.
+
+Step 3: Use different networks for the bonus demonstration.
+For example, keep the host on classroom Wi-Fi and connect one player through
+a phone hotspot. Both need working internet for Tailscale.
+
+Step 4: Launch the same game EXE.
+In Host a game, select Tailscale BEFORE creating the room. The form checks
+the HOST's status. If unavailable, it disables creation and explains what to
+do. Open/connect Tailscale separately, then press Refresh in the game form.
+A ready host status does not check every player's setup or access policy.
+
+Step 5: Create and share.
+Create the room and use Copy invite. The invite uses the host's Tailscale
+IPv4 address and game port. Authorized players open it in their browsers,
+enter nicknames and join normally.
+
+Step 6: Verify actual gameplay.
+Check both TCP and UDP readiness. Draw and submit guesses across the two
+networks. Show Network details and increasing UDP receive/relay counters.
+A page loading by itself does not prove that drawing works.
+
+Important distinctions:
+- The selector does not install Tailscale, open its app, sign anyone in,
+  join a tailnet, or change firewall/access-control settings.
+- It selects the room's advertised invite address. It does not disable the
+  server's other interfaces or move existing connections between networks.
+- No public hosting, domain, Tailscale Serve or Funnel is needed here.
+- Tailscale can use direct or relayed connectivity. Its outer tunnel route
+  can vary. Meaningful UDP use is our own WebRTC drawing channel, not merely
+  the fact that Tailscale is installed.
+- Verify actual different-network gameplay on the team's devices before
+  claiming the bonus. Local tests or host-ready status are not that proof.
+
+
+4. GAME RULES AND PERSONAL CONTROLS
+==================================
+
+- Two to five starting players. With N players, a game contains N turns.
+- One host-selected theme for the whole game: Animals, Technology or Food.
+  Each has ten words. The server selects N distinct words for that game.
+- Drawing order is randomized; each player draws once unless a departure
+  causes their turn to be skipped.
+- Eighty seconds per drawing turn. One additional random hint letter appears
+  at 60, 40 and 20 seconds remaining. Spaces are visible from the beginning.
+- Correct-guess order awards 100, 80, 50 and 45 points.
+- The drawer earns 20 points per remaining guesser who fails to guess.
+  Honest drawing is an agreement between players, not an enforced rule.
+- Capitalization and surrounding whitespace do not matter. Word boundaries
+  do: icecream is close but wrong, while ice cream is correct. Repeated
+  whitespace is normalized. Other near misses use a similarity heuristic.
+- Correct answers are not broadcast as chat. Successful guessers cannot
+  keep chatting during the turn, preventing answer sharing.
+- A turn ends when everyone eligible guesses or the timer expires.
+- A five-second break reveals the answer and drawer bonus.
+- Highest total score wins. Tied scores share ranks. Everyone sees their
+  total; the podium displays ranks one through three.
+- The moon/sun control changes light/dark mode; the music control mutes.
+  Audio starts after a click or keypress, following browser autoplay rules.
+- Sounds include typing, wrong, close and correct feedback. Countdown ticks
+  start at 20 seconds and speed up in the last eight. Ticking stops on pause,
+  after your correct guess or at turn end.
+- Avatar/theme/mute preferences are saved per browser/server address.
+  The canvas stays white in both modes. Reduced-motion preferences disable
+  decorative animations.
+
+
+5. EVERY FILE AND ITS PURPOSE
+============================
+
+MAIN FOLDER
+
+GuessTheMess.exe
+  Ready-to-run Windows server. Embeds our program, browser assets, word
+  lists, an existing Python interpreter and dependencies. It can be sent
+  alone to a compatible PC that only needs to host.
+
+START HERE.txt
+  This guide. It is documentation, not executable code.
+
+Source/
+  Readable/editable implementation for study, presentation and submission.
+
+INSIDE SOURCE
+
+server.py - NETWORK COMMUNICATION
+  Runs HTTP, WebSocket and WebRTC, handles room/session connections,
+  validates messages, calls game rules and relays updates. It also checks
+  network/Tailscale readiness and constructs invites. It does much more
+  than simply configure a server.
+
+  Find these functions when presenting:
+  network_options() - discovers interfaces and reads host Tailscale status.
+  websocket()       - handles create/join/chat/start/commit/leave/resume.
+  negotiate()       - handles WebRTC offers, answers and channel messages.
+  drawing_op()      - validates drawing payloads.
+  flush()           - sends events and player-specific state to clients.
+  ticker()          - advances game time in a background asyncio task.
+  main()            - starts the listener and prints current addresses.
+
+game.py - GAME RULES AND STATE
+  Defines Player and Room. Chooses words/order, checks answers, awards points,
+  reveals hints, and handles turns, pauses and departures. No page layout.
+
+  start()          - checks readiness, picks words and drawing order.
+  next_turn()      - assigns the drawer, resets canvas and starts 80 seconds.
+  guess()          - checks guesses before publishing chat or giving points.
+  tick()           - updates time and reveals hint letters.
+  finish_turn()    - awards drawer points and starts the break.
+  disconnect(), reconnect(), continue_without() - handle interrupted play.
+  state()          - produces the information a particular player may see.
+
+words.json
+  Word lists grouped by theme. JSON is a structured data format.
+
+requirements.txt
+  Lists direct Python dependencies: aiohttp and aiortc. Their installation
+  also installs required supporting packages. aiohttp supplies HTTP and
+  WebSocket support; aiortc supplies Python WebRTC support.
+
+README.md
+  Shorter code overview, source execution and rebuilding instructions.
+
+INSIDE SOURCE/web
+
+index.html
+  Defines the forms, canvas, chat, timer, buttons, player list and results.
+  HTML provides the page structure.
+
+style.css
+  Base layout, spacing, typography and responsive behavior.
+
+personality.css
+  Game-specific appearance, dark mode, player cards, chat bubbles, podium,
+  connection selector and animations. CSS provides visual styling.
+
+app.js
+  Browser networking and interaction. Opens both connections, sends input,
+  receives server events, paints drawings and updates the screen. It displays
+  official scores; it does not decide or award them.
+
+  refreshNetworks() - obtains host connection options.
+  connect()         - opens WebSocket.
+  setupRTC()        - creates/negotiates the WebRTC drawing channel.
+  receive()         - handles server messages.
+  preview()         - sends live ink through the UDP-based channel.
+  commit()          - sends completed drawing operations over WebSocket.
+  applyCommit()     - applies an accepted operation to the permanent canvas.
+  render()          - updates players, scores, timer, hints and screens.
+
+experience.js
+  Browser sounds, avatars, theme/mute preferences, countdown feedback and
+  celebrations. Uses Web Audio to synthesize sounds locally. It does not
+  control the official game clock or scores.
+
+INSIDE SOURCE/tools
+
+Setup.bat
+  Prepares the SOURCE execution environment. Requires Python already
+  installed. Creates a local environment and installs game libraries.
+  Does not run the game, build the EXE, or install Python itself.
+
+Start Server.bat
+  Starts server.py using that source environment. Alternative to the EXE
+  when developing or trying edits.
+
+build_portable.py
+  Uses PyInstaller to bundle the game/assets, Python and installed libraries
+  into GuessTheMess.exe. It packages the game rather than defining its rules.
+  It does not run Setup.bat or install dependencies. Temporary build files
+  are removed automatically after a normal build.
+
+requirements-lock.txt
+  Exact runtime dependency versions used for the packaged build. Helps
+  reproduce the environment; it is not executable game code.
+
+INSIDE SOURCE/docs
+
+NETWORKING.md
+  Detailed architecture, protocol choices, LAN/Tailscale and firewall help.
+
+PRESENTATION.md
+  Short slide outline and demonstration sequence for the team to adapt.
+
+THIRD_PARTY.md
+  External components and licensing information. We use existing Python
+  and networking libraries; we did not invent their protocol internals.
+
+
+6. PYTHON, LIBRARIES, SOURCE LAUNCHERS AND THE EXE
+================================================
+
+The Python interpreter executes Python code. An IDE such as Thonny is an
+editor/development application. Neither an IDE nor a separately installed
+Python interpreter is required for our finished EXE. We did not create an
+interpreter; we bundled an existing one.
+
+SOURCE / DEVELOPMENT ROUTE
+1. Install Python; Python 3.12 x64 is recommended.
+2. Run Source/tools/Setup.bat once with internet access for dependencies.
+3. Run Source/tools/Start Server.bat to start the editable source version.
+
+EXE / NORMAL ROUTE
+1. Copy or download GuessTheMess.exe.
+2. Double-click it. Its interpreter and libraries are already included.
+
+TO BUILD A NEW EXE AFTER EDITING
+From a terminal inside Source, using a prepared Python environment:
+  python -m pip install -r requirements.txt pyinstaller
+  python tools/build_portable.py
+
+Setup.bat installs game dependencies, but PyInstaller is an additional build
+tool. The build script collects already-prepared components; it does not
+perform setup for you.
+
+At launch, the EXE extracts support files temporarily and starts the server.
+It does not download Python or run Setup.bat each time. Normal shutdown lets
+the packaging runtime clean its temporary files.
+
+Editing Source does NOT update an existing EXE. Run the source to try edits,
+or rebuild the EXE before distributing those changes.
+
+
+7. CLIENT-SERVER ARCHITECTURE AND STARTUP TIMELINE
+================================================
+
+ Browser A ---- WebSocket/TCP and WebRTC/UDP ----+
+ Browser B ---- WebSocket/TCP and WebRTC/UDP ----+-- Python server on host PC
+ Browser C ---- WebSocket/TCP and WebRTC/UDP ----+
+ More clients - WebSocket/TCP and WebRTC/UDP ----+
+
+Each browser connects to the SERVER for both channels. The server relays
+updates to room members. Browsers do not send drawing directly to one
+another. Although WebRTC supports peer-to-peer applications, our topology
+is client-server.
+
+The host's browser is a client too. Being the room host means having Start
+and Continue privileges; it is different from running the server process.
+
+STARTUP TIMELINE
+1. EXE starts its bundled Python runtime and server.py.
+2. Server listens on available IPv4 interfaces. Default HTTP/WebSocket port
+   is 8000. Listening on 0.0.0.0 means all interfaces, not an invite address.
+3. Browser requests the page using HTTP. Server supplies HTML, CSS and JS.
+4. JavaScript executes in the browser. Player PCs do not execute Python.
+5. Creating/joining establishes a persistent WebSocket connection to /ws.
+6. Browser creates a WebRTC data channel and sends an offer over WebSocket.
+7. Server returns an answer over WebSocket. This is connection signaling.
+8. ICE considers available addresses and attempts a working route. DTLS
+   protects the drawing transport, with SCTP carried over UDP.
+9. A channel greeting confirms that the drawing channel has opened.
+10. Host can start when the required players and drawing channels are ready.
+
+These are real network connections. aiohttp, aiortc and the browser APIs
+handle their internals. We configure them and implement game messages;
+we do not manually implement raw TCP/UDP sockets or those protocols.
+
+
+8. TCP AND UDP: ACTUAL USAGE AND JUSTIFICATION
+=============================================
+
+TCP BASICS
+TCP provides a reliable, ordered byte stream. It detects loss and normally
+retransmits missing data while the connection works. A failed connection
+still needs application handling; TCP cannot keep a failed PC online.
+
+WebSocket uses TCP here and supplies application-message framing. Our
+messages are JSON objects with a type and relevant fields. We do not need
+to manually split a raw TCP byte stream into separate game messages.
+
+WE USE WEBSOCKET/TCP FOR
+- Nickname/session registration, rooms, joining and leaving.
+- Chat, guesses and private feedback.
+- Start/end, turns, scores, rankings, hints and pause/resume updates.
+- WebRTC offer/answer signaling and reconnect/session messages.
+- Completed brush/eraser strokes, bucket fills and clear operations.
+- Canvas reconstruction after reconnect or an operation revision gap.
+
+WHY TCP HERE
+A missing correct guess could change points or placement. Missing or
+out-of-order control events could make players disagree about the game.
+Reliability and ordering matter for these operations.
+
+TCP is not chosen because chat should be slow. TCP can be fast. Lost data
+can delay later delivery while TCP recovers it; we accept that trade-off
+for consistent control and scoring.
+
+UDP BASICS
+UDP itself does not guarantee delivery, ordering or duplicate protection,
+and does not automatically resend lost messages. UDP is not guaranteed
+to be faster in every situation.
+
+LIVE DRAWING USES THIS STACK
+  Drawing messages -> SCTP -> DTLS -> ICE/UDP
+
+This is a UDP-based WebRTC data channel, not a raw UDP socket opened by our
+JavaScript. The browser configures it with:
+  ordered: false
+  maxRetransmits: 0
+
+This permits out-of-order preview delivery and avoids retransmitting lost
+preview messages. Frequent small updates can appear while the drawer is
+still moving, without waiting for older missing previews. WebRTC provides
+additional transport behavior, including congestion handling; UDP itself
+does not provide it.
+
+WHY DRAWING ALSO USES TCP
+A lost packet containing ink can leave a permanent gap. Later ink does not
+necessarily replace it. Therefore we use TWO stages:
+
+1. While drawing: send small temporary previews over WebRTC/UDP.
+2. Server validates and relays them to other browsers in the room.
+3. At stroke completion: send every point of that stroke over WebSocket/TCP.
+4. Server accepts the ordered operation and broadcasts it reliably.
+5. Clients replace the temporary preview with the completed stroke, repairing
+   missing preview segments.
+
+Bucket fill and clear use reliable TCP because operation order changes the
+canvas result. They are not continuous movement previews.
+
+CONSISTENCY IDENTIFIERS
+- Turn ID rejects updates left over from an earlier turn.
+- Stroke ID matches previews to their completed stroke.
+- Preview sequence numbers order received chunks within a stroke.
+- Commit revisions order accepted canvas operations.
+
+Clients ignore late previews for committed strokes. A reconnect or revision
+gap can trigger a reliable operation-log reconstruction. The game does not
+silently pretend TCP previews are UDP when WebRTC is unavailable.
+
+PORTS AND TRANSPORT DETAILS
+HTTP/WebSocket normally use TCP 8000. WebRTC drawing uses negotiated,
+dynamically allocated UDP ports, not necessarily UDP 8000. This explains
+why a TCP-only firewall exception may load chat but leave drawing broken.
+
+The default local/private website uses HTTP and plain WebSocket. WebRTC
+has DTLS encryption separately. Tailscale additionally protects traffic
+carried inside its private tunnel.
+
+Network details reports server-wide WebSocket message counts, UDP previews
+received/relayed and reliable canvas operations. Counters reset on restart.
+
+
+9. CODE WALKTHROUGHS: A GUESS AND A DRAWING
+==========================================
+
+A. A PLAYER SUBMITS A GUESS
+1. app.js reads the input and sends a JSON chat command through WebSocket.
+2. server.py receives it in websocket() and identifies the player/room.
+3. It calls Room.guess() in game.py.
+4. game.py checks permissions and compares the normalized guess.
+5. Correct: award points, mark success and prepare a public announcement
+   that contains the player/placement/points but not the answer.
+6. Close: return private feedback, no points, and do not publish the typo.
+7. Ordinary wrong: publish chat and return private wrong-guess feedback.
+8. server.py sends events and player-specific state through TCP.
+9. app.js updates chat/scores/controls; experience.js plays local feedback.
+
+B. THE DRAWER MOVES THE MOUSE
+1. app.js displays local ink immediately and collects normalized coordinates.
+2. preview() sends chunks through the WebRTC drawing channel.
+3. server.py validates them in the handler established by negotiate().
+4. Server relays valid previews through other room members' WebRTC channels.
+5. On completion, commit() sends the full stroke over WebSocket/TCP.
+6. Server stores and broadcasts it as an accepted operation with a revision.
+7. applyCommit() paints permanent ink and removes its temporary preview.
+
+WHY WE HAVE BOTH game.py AND web/
+The browser handles input and display. game.py decides official outcomes on
+the server. A browser that could award its own points could be modified to
+cheat. Disabling UI controls is convenient, but server-side validation is
+what actually enforces drawing and guessing permissions.
+
+
+10. CONCURRENCY, AUTHORITY, DISCONNECTS AND LIMITS
+================================================
+
+CONCURRENT PLAYERS
+asyncio handles I/O and the timer without a separate thread for each player.
+An asyncio lock serializes authoritative changes, preventing simultaneous
+guesses from independently taking the same placement. Slow network/status
+checks run outside that game-state lock.
+
+The server's order of ACCEPTING correct guesses determines placement. We
+cannot know who physically typed first across different network delays.
+We do not trust client clocks to select winners.
+
+AUTHORITATIVE SERVER
+Server chooses words/order, tracks time with a monotonic clock, reveals
+hints, validates actions and awards points. During a drawing turn, only
+the drawer receives the complete secret word. Guessers receive its mask
+and revealed letters. Everyone sees the answer after the turn.
+
+UNEXPECTED WEBSOCKET LOSS
+Heartbeat/connection handling detects a missing player. Detection is not
+instantaneous: freezing happens once the server detects it. The timer and
+gameplay then pause. Host chooses Wait or Continue without the missing player.
+Session tokens in the same browser tab identify a returning active player.
+These are temporary bearer credentials, not permanent password accounts.
+
+If the room host disconnects while the server continues running, another
+connected player receives host controls. This does NOT move the actual
+server to another PC. If the server itself stops, sessions end.
+
+UDP LOSS IS DIFFERENT
+Individual missing drawing previews are repaired by reliable commits.
+If the whole drawing channel fails, use Repair UDP or refresh the same tab.
+UDP-channel failure alone does not automatically freeze the timer; an
+affected drawer cannot draw until it is repaired. Drawing readiness is
+required from every player before starting a game.
+
+OTHER LIMITS
+- New players join waiting or finished rooms, not ongoing games.
+- Deliberate Leave removes a player without waiting for reconnection.
+- Removing the drawer skips their turn without awarding a drawer bonus.
+- Fewer than two remaining active players ends the game.
+- Rooms, chat and scores are not a persistent database.
+- Connection mode/invite stays fixed for a room. Create another room if the
+  selected interface/address changes or you need another connection mode.
+- This is a LAN/private-tailnet project, not unrestricted public hosting.
+- GitHub distributes files; the hosting PC runs the actual server.
+
+
+11. PRESENTATION AND LIVE DEMONSTRATION PLAN
+===========================================
+
+PRESENTATION ORDER
+1. Introduce the competitive game and its rules.
+2. Show the client-server diagram and the main implementation files.
+3. Explain reliable TCP control/guesses versus UDP-based drawing previews.
+4. Explain the reliable stroke commits that repair missing ink.
+5. Explain server authority, concurrency and disconnection handling.
+6. Demonstrate LAN play, then the cross-network bonus if ready.
+
+DEMONSTRATION CHECKLIST
+- Use four separate computers for the assignment setup: one server PC and
+  three other PCs running browser clients. The server PC can also run a
+  browser client, giving four players.
+- Create a room and show nicknames, avatars and selected connection mode.
+- Start with ready connections and demonstrate real-time drawing.
+- Submit an ordinary wrong guess, a close guess and a correct guess.
+- Show that correct text stays hidden, points change, and a successful
+  guesser cannot continue chatting that turn.
+- Show a hint at 60 seconds; explain the later hints at 40 and 20.
+- Show another drawer and explain one turn per starting player.
+- Show Network details and increasing UDP counters during drawing.
+- Demonstrate unexpected disconnection freeze and reconnection or Continue.
+- Finish and show ranks; explain what a rematch resets.
+- For the bonus, create a NEW Tailscale room and put a client on a different
+  network. Demonstrate both drawing and guesses across that connection.
+
+SAMPLE SHORT EXPLANATION
+"Each browser sends actions to our Python server. The server validates
+those actions and updates authoritative game state. We use WebSocket over
+TCP for reliable guesses and control, and WebRTC over UDP for live ink.
+Completed strokes also travel through TCP to repair missing previews.
+The browser displays results; the server decides scores and turn changes."
+
+
+12. LIKELY QUESTIONS, TROUBLESHOOTING AND REFERENCES
+===================================================
+
+Q: Did you create the Python interpreter?
+A: No. We wrote the application and bundled an existing interpreter.
+
+Q: Why does the host not need Python installed?
+A: PyInstaller includes Python, libraries and game assets in the EXE.
+
+Q: Does the EXE run Setup.bat on every launch?
+A: No. Its requirements are already bundled. Setup.bat only prepares the
+   alternative source execution environment.
+
+Q: Why TCP for chat?
+A: A missing or reordered guess could affect scoring. We want reliable,
+   ordered delivery while connected, not intentionally slow chat.
+
+Q: Why UDP for drawing if you also send strokes with TCP?
+A: UDP-based previews provide immediate ink without retransmitting stale
+   previews. Completed TCP strokes give everyone a consistent final canvas.
+
+Q: Are you using raw sockets directly?
+A: No. We use aiohttp/browser WebSockets over TCP and aiortc/browser WebRTC
+   SCTP/DTLS over UDP. They operate real connections. We configure those
+   APIs and implement the game's messages and validation.
+
+Q: Do browsers talk directly to every other browser?
+A: No. Each connects to the server; the server relays room updates.
+
+Q: What if two guesses arrive nearly together?
+A: The server serializes accepted actions. Its acceptance order decides rank.
+
+Q: Does choosing Tailscale connect everyone automatically?
+A: No. Everyone using it connects Tailscale separately. The game checks the
+   host and chooses the room's advertised invite address.
+
+Q: Is nickname registration a permanent account system?
+A: No. It is temporary room/session identification without passwords.
+
+Q: Does installing Tailscale alone prove UDP use?
+A: No. The game itself uses its WebRTC drawing channel. We demonstrate that
+   drawing traffic and its counters separately from the tunnel setup.
+
+PAGE WILL NOT OPEN
+Check the running server, correct invite address/port, device reachability,
+and firewall. A room code cannot make an unreachable host reachable.
+Campus client isolation may require an approved hotspot/router instead.
+
+PAGE OPENS BUT DRAWING DOES NOT
+Check UDP readiness and endpoint firewalls, then Repair UDP or refresh.
+For Tailscale, check access policies for UDP as well as the TCP website.
+A ready host status does not prove another device's UDP reachability.
+
+TAILSCALE ROOM CANNOT BE CREATED
+Open Tailscale separately on the host, sign in/connect/approve it as needed,
+then Refresh in the host form. Players also connect Tailscale separately.
+
+SERVER PORT ALREADY USED
+Stop the older server, or launch from a terminal with a different port:
+  GuessTheMess.exe --port 8080
+Share the invite generated by that running instance.
+
+SOURCE EDITS DO NOT APPEAR
+You may be running an older EXE. Run the source or rebuild after edits.
+Refresh browser pages after restarting to load the updated interface.
+
+PRIMARY TECHNICAL REFERENCES
+TCP: https://www.rfc-editor.org/rfc/rfc9293.html
+UDP guidance: https://www.rfc-editor.org/rfc/rfc8085.html
+WebRTC data channels: https://www.rfc-editor.org/rfc/rfc8831.html
+aiohttp: https://docs.aiohttp.org/en/stable/web_reference.html
+aiortc: https://aiortc.readthedocs.io/en/stable/api.html
+Tailscale status/CLI: https://tailscale.com/docs/reference/tailscale-cli
+
+END OF GUIDE
