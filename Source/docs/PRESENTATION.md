@@ -6,7 +6,7 @@ Copy these five sections into your team's preferred slide tool. Technical conten
 
 - 2–5 players; host participates through a browser.
 - One theme and N unique words for N players.
-- Randomized order; each player draws once for 80 seconds.
+- Randomized order; each drawer gets up to 10 seconds to choose one of three private random unused words, followed by a full 80 seconds to draw. Timeout chooses automatically.
 - Correct-guess placement and drawer bonuses determine the final ranking.
 
 Say: "Our focus is real network communication between independent clients and a central server."
@@ -22,7 +22,7 @@ Show: server console plus browsers on separate computers. Explain that running a
 
 ## Slide 3 — TCP: reliable control and fair guesses
 
-- WebSocket over TCP: room registration, chat, guesses, start/end, hints, scores.
+- WebSocket over TCP: room registration, private word choices and validated selection, chat, guesses, start/end, hints, scores.
 - Server processes guesses before broadcasting anything.
 - Correct answers are hidden; success messages reveal only player/placement/points.
 - Server acceptance order decides first/second/etc.; clients never assign points.
@@ -42,8 +42,8 @@ Show: live drawing and Network details with UDP receive/relay counters increasin
 ## Slide 5 — Concurrency, disconnects, and bonus
 
 - asyncio handles simultaneous connections; a lock serializes authoritative changes.
-- WebSocket heartbeat detects loss; detected loss freezes the game timer/actions.
-- Same-tab reconnect restores identity; the host can instead continue without the player.
+- WebSocket heartbeat and drawing-channel failure handling detect loss. Picking, drawing and break timers freeze, and actions are blocked.
+- Same-tab reconnect restores identity. Both channels must recover before play resumes; the host can instead skip missing players. A skipped drawer gets no bonus.
 - Host-player control can transfer; the server process itself does not migrate.
 - Bonus: put a player on another network and reach the same server through Tailscale.
 
@@ -53,7 +53,7 @@ Say: "Tailscale provides reachability across networks. Our own WebRTC drawing re
 
 1. Launch the server on computer 1; open three clients on computers 2–4. Optional fourth player on computer 1.
 2. Register nicknames, create/join a named room, show a leave/rejoin before starting.
-3. Start with green UDP indicators, draw, send a wrong guess and a correct guess.
+3. Start with green UDP indicators. Show three choices only to the drawer, choose one, draw, send a wrong guess and a correct guess. On another turn, show the 10-second automatic selection.
 4. Show that the correct text is hidden and successful guessers cannot keep chatting.
 5. Show a hint when 60 seconds remain, then rotation without a repeated drawer.
 6. Demonstrate disconnect freeze and reconnect or Continue without them.

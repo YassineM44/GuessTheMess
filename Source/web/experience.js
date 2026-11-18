@@ -8,6 +8,49 @@ window.MessExperience = (() => {
   const avatars = ["👾", "🐸", "🦊", "🐼", "🐙", "👻", "🤖", "🌵"];
   const avatarNames = ["Alien", "Frog", "Fox", "Panda", "Octopus", "Ghost", "Robot", "Cactus"];
   if (!avatars.includes(avatar)) avatar = avatars[0];
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  let motionPaused = get("gtm-motion", "on") === "off", demoTimer, demoIndex = 0;
+  const demoWords = [["a potato?", "a cat!"], ["a triangle?", "pizza!"], ["a microwave?", "a robot!"]];
+  function animateDemo() {
+    const demo = document.getElementById("doodleDemo");
+    demo.classList.remove("demo-running");
+    demo.querySelectorAll("[data-doodle]").forEach((g, i) => g.classList.toggle("is-active", i === demoIndex));
+    demo.querySelectorAll(".demo-dots i").forEach((g, i) => g.classList.toggle("is-active", i === demoIndex));
+    document.getElementById("demoWrong").textContent = demoWords[demoIndex][0];
+    document.getElementById("demoRight").textContent = demoWords[demoIndex][1];
+    void demo.offsetWidth;
+    demo.classList.add("demo-running");
+  }
+  function syncMotion() {
+    const active = !motionPaused && !reducedMotion.matches;
+    document.documentElement.dataset.motion = active ? "on" : "off";
+    const button = document.getElementById("motionButton");
+    button.textContent = active ? "✦" : "Ⅱ";
+    button.setAttribute("aria-pressed", String(!active));
+    button.setAttribute("aria-label", active ? "Pause animations" : "Enable animations");
+    button.title = reducedMotion.matches ? "Reduced motion follows your device setting" : button.getAttribute("aria-label");
+    clearInterval(demoTimer);
+    if (active && !document.hidden && !document.getElementById("entry").hidden) {
+      animateDemo();
+      demoTimer = setInterval(() => { demoIndex = (demoIndex + 1) % demoWords.length; animateDemo(); }, 5200);
+    }
+  }
+  document.getElementById("motionButton").onclick = () => {
+    motionPaused = !motionPaused; save("gtm-motion", motionPaused ? "off" : "on"); syncMotion();
+  };
+  reducedMotion.addEventListener("change", syncMotion);
+  document.addEventListener("visibilitychange", syncMotion);
+  new MutationObserver(syncMotion).observe(document.getElementById("entry"), {attributes: true, attributeFilter: ["hidden"]});
+  function identityUI(react = false) {
+    const badge = document.getElementById("identityAvatar");
+    badge.textContent = avatar;
+    document.getElementById("identityName").textContent = document.getElementById("nickname").value.trim() || "That’s you.";
+    if (react && !motionPaused && !reducedMotion.matches) badge.animate([
+      {transform:"rotate(-8deg) scale(1)"}, {transform:"rotate(12deg) scale(1.2)",offset:.4},
+      {transform:"rotate(-8deg) scale(1)"}
+    ], {duration:400, easing:"ease-out"});
+  }
+  document.getElementById("nickname").addEventListener("input", () => identityUI());
   function unlock() {
     try {
       if (!context) { context = new (window.AudioContext || window.webkitAudioContext)(); master=context.createGain();master.gain.value=muted?0:.25;master.connect(context.destination); }
@@ -65,8 +108,9 @@ window.MessExperience = (() => {
     const ticking=active && !s.paused.length && !me?.guessed && s.remaining>0 && s.remaining<=20;
     document.body.classList.toggle("time-pressure",ticking);
     document.body.classList.toggle("final-seconds",ticking && s.remaining<=8);
-    document.getElementById("timeFill").style.width=`${active?s.remaining/80*100:0}%`;
-    if(previous && s.turn!==previous.turn && active) { play("round");feedback("",""); }
+    document.getElementById("timeFill").style.width=`${active?s.remaining/80*100:s.phase==="picking"?s.remaining/(s.pick_seconds||10)*100:0}%`;
+    if(previous && active && (s.turn!==previous.turn || previous.phase!=="drawing")) { play("round");feedback("",""); }
+    if(previous && s.phase==="picking" && (s.turn!==previous.turn || previous.phase!=="picking")) {play("pop");feedback("","");}
     if(previous && s.phase==="finished" && previous.phase!=="finished") {play("finish");celebrate();}
     if(ticking) {
       const key=`${s.turn}:${s.remaining<=8?"fast":"slow"}:${Math.ceil(s.remaining*(s.remaining<=8?2:1))}`;
@@ -97,12 +141,13 @@ window.MessExperience = (() => {
   avatars.forEach((a,i)=>{
     const b=document.createElement("button");b.type="button";b.textContent=a;b.title=avatarNames[i];
     b.setAttribute("aria-label",`Play as ${avatarNames[i]}`);b.setAttribute("aria-pressed",String(a===avatar));
-    b.onclick=()=>{avatar=a;save("gtm-avatar",a);for(const x of picker.children)x.setAttribute("aria-pressed",String(x===b));play("pop");};picker.append(b);
+    b.style.setProperty("--avatar-index", i);
+    b.onclick=()=>{avatar=a;save("gtm-avatar",a);for(const x of picker.children)x.setAttribute("aria-pressed",String(x===b));identityUI(true);play("pop");};picker.append(b);
   });
   document.getElementById("chatInput").addEventListener("input",e=>{
     if(e.isComposing || !e.target.value || performance.now()-lastKey<65) return;
     lastKey=performance.now();play("type");
   });
-  themeUI();soundUI();
+  themeUI();soundUI();identityUI();syncMotion();
   return {play,feedback,update,celebrate,get avatar(){return avatar;},get audioState(){return context?.state || "locked";},get muted(){return muted;}};
 })();

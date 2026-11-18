@@ -11,6 +11,7 @@ MIN_PLAYERS = 2
 MAX_PLAYERS = 5
 AVATARS = ("👾", "🐸", "🦊", "🐼", "🐙", "👻", "🤖", "🌵")
 TURN_SECONDS = 80.0
+PICK_SECONDS = 10.0
 BREAK_SECONDS = 5.0
 
 
@@ -48,6 +49,8 @@ class Room:
         self.host = None
         self.phase = "lobby"
         self.order, self.words = [], []
+        self.word_pool, self.word_choices = [], []
+        self.used_words = set()
         self.index = -1
         self.turn_id = ""
         self.remaining = 0.0
@@ -81,6 +84,30 @@ class Room:
     def members(self):
         return [p for p in self.players.values() if p.active]
 
+    def join(self, name, avatar="👾"):
+        """Restore a disconnected reserved nickname, or register in a lobby.
+
+        Room registration is nickname-based, not password authentication.
+        A normal Join must also work if the returning browser lost its token.
+        Connected and explicitly skipped seats cannot be reclaimed this way.
+        """
+        if self.phase in ("lobby", "finished"):
+            return self.add(name, avatar)
+        name_key = normalize(name)
+        player = next((p for p in self.members() if normalize(p.name) == name_key), None)
+        if player is None:
+            skipped = any(p.id in self.order and not p.active and normalize(p.name) == name_key
+                          for p in self.players.values())
+            if skipped:
+                raise ValueError("The host skipped your seat. Join again after this game finishes.")
+            raise ValueError("This game has started. Only returning players with a reserved seat can rejoin.")
+        if player.connected or player.id not in self.pause_for:
+            raise ValueError("That player is already connected. Use their open game tab.")
+        self.reconnect(player.id)
+        # The newly restored browser receives fresh reconnect credentials.
+        player.token = secrets.token_urlsafe(32)
+        return player
+
     @property
     def drawer(self):
         return self.order[self.index] if 0 <= self.index < len(self.order) else None
@@ -107,7 +134,12 @@ class Room:
             raise ValueError("Wait until every player has a green UDP connection.")
         self.order = [p.id for p in members]
         random.shuffle(self.order)
-        self.words = random.sample(self.word_lists[self.theme], len(members))
+        self.word_pool = list(dict.fromkeys(self.word_lists[self.theme]))
+        if len(self.word_pool) < len(members) + 2:
+            raise ValueError("This theme needs enough words to offer three unused choices each turn.")
+        self.words = [""] * len(members)
+        self.used_words.clear()
+        self.word_choices = []
         for p in members:
             p.score = 0
         self.pause_for.clear()
@@ -121,19 +153,37 @@ class Room:
             self.index += 1
         if self.index >= len(self.order) or len(self.members()) < MIN_PLAYERS:
             self.phase = "finished"
+            self.word_choices = []
+            self.pause_for.clear()
             self.system("Game complete! Check the final podium.")
             return
-        self.phase = "drawing"
+        self.phase = "picking"
         self.turn_id = secrets.token_hex(8)
-        self.remaining = TURN_SECONDS
+        self.remaining = PICK_SECONDS
+        self.word_choices = random.sample([w for w in self.word_pool if w not in self.used_words], 3)
         self.guessed, self.revealed = [], set()
         self.ops, self.op_ids = [], set()
         self.points_used = 0
         self.events.append({"type": "canvas", "turn": self.turn_id, "ops": []})
+        self.system(f"{self.players[self.drawer].name} is picking a word!")
+
+    def choose_word(self, pid, turn, word):
+        if self.pause_for:
+            raise ValueError("The game is paused. Wait for reconnection or the host's decision.")
+        if self.phase != "picking" or turn != self.turn_id:
+            raise ValueError("That word selection has ended.")
+        if pid != self.drawer or not self.players[pid].connected or not self.players[pid].active:
+            raise ValueError("Only the current drawer can choose the word.")
+        if not isinstance(word, str) or word not in self.word_choices:
+            raise ValueError("Choose one of the three offered words.")
+        self.words[self.index] = word
+        self.used_words.add(word)
+        self.word_choices = []
+        self.phase, self.remaining = "drawing", TURN_SECONDS
         self.system(f"{self.players[self.drawer].name} is drawing. Guess in chat!")
 
     def finish_turn(self, skipped=False):
-        if self.phase != "drawing":
+        if self.phase != "drawing" and not (skipped and self.phase == "picking"):
             return
         missed = [pid for pid in self.eligible() if pid not in self.guessed]
         bonus = 0 if skipped else 20 * len(missed)
@@ -142,8 +192,11 @@ class Room:
         self.last_result = {"word": self.answer, "drawer": drawer.name, "bonus": bonus,
                             "guessed": len(self.guessed), "skipped": skipped}
         self.phase, self.remaining = "intermission", BREAK_SECONDS
-        self.system(f'The word was “{self.answer}”. {drawer.name} earned {bonus} drawing points.'
-                    if not skipped else f'Turn skipped. The word was “{self.answer}”.')
+        self.word_choices = []
+        if skipped:
+            self.system(f"{drawer.name}'s turn was skipped." + (f' The word was “{self.answer}”.' if self.answer else ""))
+        else:
+            self.system(f'The word was “{self.answer}”. {drawer.name} earned {bonus} drawing points.')
 
     def guess(self, pid, text):
         p = self.players[pid]
@@ -151,6 +204,8 @@ class Room:
             raise ValueError("The game is paused.")
         if not p.active or not p.connected:
             raise ValueError("You are not in this game.")
+        if self.phase == "picking":
+            raise ValueError("Wait until the drawer picks a word before chatting or guessing.")
         text = text.strip()
         if not 1 <= len(text) <= 200:
             raise ValueError("Messages must contain 1–200 characters.")
@@ -182,9 +237,13 @@ class Room:
         return {"type": "feedback", "effect": "wrong"} if self.phase == "drawing" else None
 
     def tick(self, dt):
-        if self.pause_for or self.phase not in ("drawing", "intermission"):
+        if self.pause_for or self.phase not in ("picking", "drawing", "intermission"):
             return
         self.remaining = max(0, self.remaining - dt)
+        if self.phase == "picking":
+            if self.remaining == 0:
+                self.choose_word(self.drawer, self.turn_id, random.choice(self.word_choices))
+            return
         if self.phase == "intermission":
             if self.remaining == 0:
                 self.next_turn()
@@ -201,10 +260,11 @@ class Room:
     def disconnect(self, pid, voluntary=False):
         p = self.players[pid]
         p.connected, p.rtc_ready = False, False
-        running = self.phase in ("drawing", "intermission")
-        if running and not voluntary:
+        running = self.phase in ("picking", "drawing", "intermission")
+        if running:
             self.pause_for.add(pid)
-            self.system(f"{p.name} disconnected. Game frozen; the host can wait or continue.")
+            reason = "left the room" if voluntary else "disconnected"
+            self.system(f"{p.name} {reason}. Seat reserved; game frozen until they return or the host skips them.")
         else:
             self.drop(pid)
         if self.host == pid:
@@ -218,29 +278,56 @@ class Room:
         if not p.active:
             raise ValueError("The host continued without you. Join again after this game.")
         p.connected = True
-        self.pause_for.discard(pid)
+        p.rtc_ready = False
+        if self.phase in ("picking", "drawing", "intermission"):
+            self.pause_for.add(pid)
         if self.host is None:
             self.host = pid
-        self.system(f"{p.name} reconnected.")
+        self.system(f"{p.name} reconnected. Restoring their drawing connection…")
+
+    def drawing_connection(self, pid, ready):
+        """A resumed player stays paused until both transport channels work."""
+        p = self.players[pid]
+        if not p.active or (ready and not p.connected):
+            return
+        p.rtc_ready = ready
+        if ready:
+            returning = pid in self.pause_for
+            self.pause_for.discard(pid)
+            if returning:
+                self.system(f"{p.name}'s connections are restored.")
+        elif p.connected and self.phase in ("picking", "drawing", "intermission"):
+            if pid not in self.pause_for:
+                self.pause_for.add(pid)
+                self.system(f"{p.name} lost their drawing connection. Game frozen; repair it or ask the host to skip them.")
 
     def drop(self, pid):
         self.players[pid].active = False
         self.pause_for.discard(pid)
-        if self.phase == "drawing":
+        if self.phase in ("picking", "drawing"):
             if pid == self.drawer:
                 self.finish_turn(skipped=True)
-            elif all(x in self.guessed for x in self.eligible()):
+            elif self.phase == "drawing" and all(x in self.guessed for x in self.eligible()):
                 self.finish_turn()
-        if self.phase in ("drawing", "intermission") and len(self.members()) < MIN_PLAYERS:
+        if self.host == pid:
+            other = next((p for p in self.members() if p.connected), None)
+            self.host = other.id if other else None
+            if other:
+                self.system(f"{other.name} is now the room host.")
+        if self.phase in ("picking", "drawing", "intermission") and len(self.members()) < MIN_PLAYERS:
             self.phase = "finished"
+            self.word_choices = []
+            self.pause_for.clear()
             self.system("Not enough players remain. Game ended.")
 
     def continue_without(self, pid):
         if pid != self.host:
             raise ValueError("Only the host can continue without disconnected players.")
-        for missing in list(self.pause_for):
+        missing_players = list(self.pause_for)
+        for missing in missing_players:
             self.system(f"Continuing without {self.players[missing].name}.")
             self.drop(missing)
+        return missing_players
 
     def can_draw(self, pid, turn):
         return (self.phase == "drawing" and not self.pause_for and pid == self.drawer
@@ -266,6 +353,8 @@ class Room:
                 "drawer": self.drawer, "turn": self.turn_id,
                 "round": min(self.index + 1, len(self.order)), "rounds": len(self.order),
                 "remaining": round(self.remaining, 1),
+                "pick_seconds": PICK_SECONDS,
+                "choices": list(self.word_choices) if self.phase == "picking" and pid == self.drawer else [],
                 "mask": "".join(c if c == " " or i in self.revealed else "_"
                                 for i, c in enumerate(self.answer)) if self.phase == "drawing" else "",
                 "word": self.answer if pid == self.drawer and self.phase == "drawing" else None,

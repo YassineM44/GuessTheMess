@@ -150,9 +150,14 @@ class GameServer:
     async def negotiate(self, room, pid, ws, data):
         key = (room.code, pid)
         await self.close_peer(key)
-        room.players[pid].rtc_ready = False
+        room.drawing_connection(pid, False)
         pc = RTCPeerConnection(RTCConfiguration(iceServers=[]))
         self.peers[key] = pc
+
+        @pc.on("connectionstatechange")
+        def peer_state_changed():
+            if self.peers.get(key) is pc and pc.connectionState in ("failed", "closed"):
+                room.drawing_connection(pid, False)
 
         @pc.on("datachannel")
         def channel_received(channel):
@@ -164,12 +169,13 @@ class GameServer:
             @channel.on("open")
             def opened():
                 if self.peers.get(key) is pc:
-                    room.players[pid].rtc_ready = True
+                    # The hello exchange below confirms that both ends can send.
+                    room.players[pid].rtc_ready = False
 
             @channel.on("close")
             def closed():
                 if self.peers.get(key) is pc:
-                    room.players[pid].rtc_ready = False
+                    room.drawing_connection(pid, False)
 
             @channel.on("message")
             def message(payload):
@@ -177,7 +183,7 @@ class GameServer:
                     return
                 # A small UDP hello proves the data channel is open on both ends.
                 if payload == "hello":
-                    room.players[pid].rtc_ready = True
+                    room.drawing_connection(pid, True)
                     channel.send("hello")
                     return
                 if not isinstance(payload, str) or len(payload) > 8000:
@@ -290,7 +296,8 @@ class GameServer:
                                     candidate = self.rooms.get(str(data.get("code", "")).strip().upper())
                                     if not candidate:
                                         raise ValueError("Room not found. Check the six-character room code.")
-                                p = candidate.add(str(data.get("name", "")), str(data.get("avatar", "👾")))
+                                register = candidate.join if action == "join" else candidate.add
+                                p = register(str(data.get("name", "")), str(data.get("avatar", "👾")))
                                 room, pid = candidate, p.id
                                 self.rooms[room.code] = room
                             else:
@@ -308,12 +315,20 @@ class GameServer:
                             await self.negotiate(room, pid, ws, data)
                         elif action == "start":
                             room.start(pid)
+                        elif action == "choose_word":
+                            room.choose_word(pid, data.get("turn"), data.get("word"))
                         elif action == "chat":
                             notice = room.guess(pid, str(data.get("text", "")))
                             if notice:
                                 await self.send(ws, notice)
                         elif action == "continue":
-                            room.continue_without(pid)
+                            for missing in room.continue_without(pid):
+                                missing_key = (room.code, missing)
+                                missing_ws = self.clients.pop(missing_key, None)
+                                await self.close_peer(missing_key)
+                                if missing_ws and not missing_ws.closed:
+                                    await self.send(missing_ws, {"type": "removed", "text": "The host continued without you. You can join again after this game."})
+                                    await missing_ws.close()
                         elif action == "wait":
                             if pid != room.host:
                                 raise ValueError("Only the host can choose to wait.")
@@ -338,13 +353,14 @@ class GameServer:
                         elif action == "diagnostics":
                             await self.send(ws, {"type": "diagnostics", "stats": self.stats})
                         elif action == "leave":
+                            resumable = room.phase in ("picking", "drawing", "intermission")
                             room.disconnect(pid, voluntary=True)
                             if room.host == pid:
                                 room.host = next((p.id for p in room.members() if p.connected), None)
                             self.clients.pop(key, None)
                             await self.flush(room)
                             await self.close_peer(key)
-                            await self.send(ws, {"type": "left"})
+                            await self.send(ws, {"type": "left", "resumable": resumable})
                             room = pid = key = None
                             continue
                         else:
@@ -388,6 +404,10 @@ class GameServer:
 
     def app(self):
         app = web.Application(client_max_size=160000)
+        async def fresh_browser_files(request, response):
+            if request.path == "/" or request.path.startswith("/static/"):
+                response.headers["Cache-Control"] = "no-store, max-age=0"
+        app.on_response_prepare.append(fresh_browser_files)
         app.router.add_get("/ws", self.websocket)
         async def index(request):
             return web.FileResponse(ROOT / "web" / "index.html", headers={"Cache-Control": "no-cache"})

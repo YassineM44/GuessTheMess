@@ -9,7 +9,7 @@ The **Source** folder contains the readable project. The executable outside it i
 | `server.py` | HTTP, WebSocket/TCP, WebRTC/UDP, sessions, rooms, action validation and relay. |
 | `game.py` | Players, words, turns, guesses, points, hints, timer, disconnect decisions. |
 | `web/app.js` | Browser connections, canvas tools, chat, rendering server state. |
-| `web/experience.js` | Sounds, avatars, theme preferences, countdown feedback, confetti. |
+| `web/experience.js` | Sounds, avatars, animated menu doodles, motion/theme preferences, countdown feedback, confetti. |
 | `web/index.html` | Page structure: lobby, canvas, chat, controls. |
 | `web/style.css` | Base layout and responsive styles. |
 | `web/personality.css` | Doodle styling, dark mode, player cards, animation. |
@@ -57,19 +57,22 @@ Copy Invite uses that room's chosen server address, even if the host opened loca
 ## Game rules
 
 - 2-5 starting players, N turns and N distinct words from the host's chosen theme. Each player draws once in randomized order.
-- 80 seconds per turn. Hint letters appear at 60, 40, and 20 seconds remaining.
+- Before each turn, the drawer has up to 10 seconds to choose among three random unused theme words. Choices go only to that drawer. Timeout picks one automatically. Unchosen offers can appear again, but selected answers do not repeat in that game.
+- Choosing starts a full 80-second drawing turn. Hint letters appear at 60, 40, and 20 seconds remaining. Drawing and guessing are disabled during selection.
 - Guess placement earns 100 / 80 / 50 / 45 points, in server acceptance order.
 - Drawer earns 20 per unsuccessful remaining guesser. Honest drawing is a player agreement.
 - Case and outer whitespace do not matter. Word boundaries do: `icecream` is close; `ice cream` is correct. Near misses use a similarity heuristic.
 - Correct answers stay out of public chat. Drawer and successful guessers cannot chat during the turn.
 - Everyone correct or time expired ends a turn. Five-second breaks reveal the answer. Total points determine final ranks; ties share ranks.
-- Detected unexpected disconnects freeze play. Host waits or continues without the player. Same-tab tokens restore sessions.
+- Detected loss of either the WebSocket or drawing channel freezes picking, drawing, and break timers, drawing and guesses. The host waits or skips disconnected players. Same-tab tokens restore identity, and play resumes only after both channels are ready. Repair UDP restores a failed drawing channel. Skipping the drawer ends that turn without bonus. Skipped clients cannot resume that game.
+- Clicking Leave room during an active game also pauses it and reserves the player's seat. The main menu offers Rejoin your paused game, using the retained session token. The host must explicitly Skip to remove that seat. Leaving a lobby or finished game removes the seat normally.
+- Normal Let me in also restores a disconnected reserved seat when the original nickname and room code match, including from a new tab or browser without a token. It keeps the original ID, avatar, points and turn, issues a fresh token and waits for drawing readiness. Connected and skipped seats cannot be reclaimed. This follows the game's nickname-based registration, not password authentication. New nicknames remain blocked until the game ends.
 - Host-player control can transfer; the actual server does not migrate. Removing the drawer skips the turn without bonus; fewer than two remaining players ends the game.
 - Rooms/scores are in memory. Restarting loses sessions. New players join only waiting or finished rooms.
 
 ## Sound and appearance
 
-Top-right controls switch light/dark mode and mute. Avatar, mute, and theme preferences are saved per browser/server address. Canvas stays white. Sounds are synthesized offline after a user gesture. Ticking starts at 20 seconds, speeds up in the last 8, and stops during pauses, after your correct guess, or on turn end. Reduced-motion preferences disable decorative animation.
+Top-right controls switch light/dark mode, mute sound, and pause decorative animations. Avatar, mute, motion, and theme preferences are saved per browser/server address. The menu cycles through self-drawing examples. The waiting room animates player arrivals and keeps existing seats mounted during connection updates. These effects are local presentation only; they do not send drawing packets or alter game state. Canvas stays white. Sounds are synthesized offline after a user gesture. Ticking starts at 20 seconds, speeds up in the last 8, and stops during pauses, after your correct guess, or on turn end. Device reduced-motion preferences disable decorative animation.
 
 ## Rebuild the executable
 

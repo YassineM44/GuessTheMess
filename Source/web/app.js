@@ -9,6 +9,7 @@ let lastCoverKey = "", lastPlayersKey = "", strokeSeq = 0, lastPointTime = 0, to
 const previousScores = new Map();
 const experience = window.MessExperience;
 let connectionMode = "lan", availableNetworks = null, networkRequest = 0;
+let pendingWordTurn = null;
 const base = $("canvas"), ctx = base.getContext("2d", {willReadFrequently: true});
 const overlay = $("overlay"), over = overlay.getContext("2d");
 const W = base.width, H = base.height;
@@ -24,12 +25,14 @@ function toast(text, success = false) {
 }
 function setMode(value) {
   mode = value;
+  $("entry").dataset.mode = value;
   $("joinTab").setAttribute("aria-selected", value === "join");
   $("createTab").setAttribute("aria-selected", value === "create");
   $("joinFields").hidden = value !== "join"; $("createFields").hidden = value !== "create";
   $("roomCode").required = value === "join"; $("roomName").required = value === "create";
-  $("enterButton").innerHTML = value === "join" ? 'Join the fun <span>↗</span>' : 'Make some room <span>↗</span>';
+  $("enterButton").innerHTML = value === "join" ? 'Let me in <span>↗</span>' : 'Create my room <span>↗</span>';
   $("entryMessage").textContent = "";
+  $("entryMessage").classList.remove("reserved");
   if(value === "create") refreshNetworks();
   else $("enterButton").disabled = entering;
 }
@@ -112,6 +115,10 @@ $("entryForm").onsubmit = event => {
   if(mode==="create" && !availableNetworks?.[connectionMode]?.ready) {renderNetworks();return;}
   entering = true; $("enterButton").disabled = true;
   $("entryMessage").textContent = "Connecting…";
+  if (mode === "join" && session && $("roomCode").value.trim().toUpperCase() === session.code) {
+    connect({type:"resume", ...session});
+    return;
+  }
   connect({type:mode, name:$("nickname").value, code:$("roomCode").value,
            room_name:$("roomName").value, theme, avatar:experience.avatar,
            connection_mode:connectionMode, invite_address:$("inviteAddress").value});
@@ -160,12 +167,15 @@ function receive(message) {
       sessionStorage.setItem("guess-the-mess-session", JSON.stringify(session));
       entering = false; reconnectAttempts = 0; $("enterButton").disabled = false;
       $("entryMessage").textContent = ""; $("connectionBanner").hidden = true;
+      $("entryMessage").classList.remove("reserved");
+      $("resumeButton").hidden = true; $("resumeButton").disabled = false;
       $("entry").hidden = true; $("game").hidden = false; $("footer").hidden = true;
       setupRTC(); break;
     case "answer":
       if (pc) pc.setRemoteDescription({type:"answer", sdp:message.sdp}).catch(e => toast(e.message)); break;
     case "state":
       state = message;
+      if (state.phase !== "picking" || pendingWordTurn !== state.turn) pendingWordTurn = null;
       experience.update(state);
       if (canvasTurn !== state.turn) resetCanvas(state.turn);
       if (!canDraw() && activeStroke) { activeStroke = null; drawOverlay(); }
@@ -177,11 +187,15 @@ function receive(message) {
       break;
     case "feedback": experience.feedback(message.effect); break;
     case "error":
+      pendingWordTurn = null;
+      $("entryMessage").classList.remove("reserved");
+      $("resumeButton").disabled = false;
       entering = false; $("enterButton").disabled = false;
       if (message.reset) { returnToEntry(); $("entryMessage").textContent = message.text; }
       else if (session && !state) { forgetSession(); $("entryMessage").textContent = message.text; }
       else if ($( "game").hidden) $("entryMessage").textContent = message.text;
       else toast(message.text);
+      if (state) render();
       break;
     case "canvas":
       resetCanvas(message.turn);
@@ -193,7 +207,10 @@ function receive(message) {
         else applyCommit(message.op);
       }
       break;
-    case "left": returnToEntry(); break;
+    case "left": returnToEntry(message.resumable === true); break;
+    case "removed":
+      returnToEntry(); $("entryMessage").textContent = message.text;
+      break;
     case "diagnostics": {
       $("diagnostics").hidden = false;
       const s = message.stats;
@@ -208,19 +225,41 @@ function receive(message) {
 
 function forgetSession() {
   session = null; sessionStorage.removeItem("guess-the-mess-session");
+  $("resumeButton").hidden = true;
   clearTimeout(reconnectTimer); intentionalLeave = true;
   if (socket) socket.close(); closeRTC();
 }
-function returnToEntry() {
+function returnToEntry(reserveSeat = false) {
+  const reserved = reserveSeat ? session : null;
   forgetSession(); state = null; lastCoverKey = lastPlayersKey = "";
+  if (reserved) {
+    session = reserved;
+    sessionStorage.setItem("guess-the-mess-session", JSON.stringify(session));
+  }
   $("game").hidden = true; $("entry").hidden = false; $("footer").hidden = false;
   document.body.classList.remove("time-pressure", "final-seconds");
   previousScores.clear();
-  $("entryMessage").textContent = "You left the room. There’s always another round.";
+  pendingWordTurn = null;
+  if (reserved) {
+    setMode("join");
+    $("roomCode").value = reserved.code;
+    $("entryMessage").textContent = "Your seat is reserved and the game is paused. Rejoin below, or the host can skip you.";
+  } else $("entryMessage").textContent = "You left the room. There’s always another round.";
+  $("entryMessage").classList.toggle("reserved", !!reserved);
+  $("resumeButton").hidden = !reserved; $("resumeButton").disabled = false;
+  $("enterButton").disabled = false; entering = false;
   $("chatLog").innerHTML = '<div class="chat-welcome">Say hello. Then trust your instincts.</div>';
   history.replaceState(null, "", location.pathname);
 }
-$("leaveButton").onclick = () => { if (!send({type:"leave"})) returnToEntry(); };
+$("leaveButton").onclick = () => {
+  if (!send({type:"leave"})) returnToEntry(!!session && ["picking","drawing","intermission"].includes(state?.phase));
+};
+$("resumeButton").onclick = () => {
+  if (!session || entering) return;
+  entering = true; $("enterButton").disabled = true; $("resumeButton").disabled = true;
+  $("entryMessage").textContent = "Returning to your reserved seat…";
+  connect({type:"resume", ...session});
+};
 $("shareButton").onclick = async () => {
   const link = state.invite_url;
   if(!link) {toast("The room’s invite address is not available yet.");return;}
@@ -243,6 +282,7 @@ function render() {
   if (!state) return;
   const s = state, host = s.host === s.you, me = s.players.find(p => p.id === s.you);
   $("game").dataset.phase = s.phase;
+  $("rosterTitle").textContent = s.phase === "lobby" ? "✦ The squad" : "🏁 The leaderboard";
   $("roomTitle").textContent = s.name; $("roomTheme").textContent = `${s.theme.toUpperCase()} · ROOM ${s.code}`;
   $("connectionModeLabel").textContent = s.connection_mode==="tailscale" ? "↗ Tailscale room" : "⌂ Wi-Fi / LAN room";
   $("inviteLink").textContent = s.invite_url || "";
@@ -253,46 +293,136 @@ function render() {
     $("players").innerHTML = s.ranking.map(r => {
       const p=s.players.find(p=>p.id===r.id), increased=previousScores.has(p.id) && p.score>previousScores.get(p.id);
       previousScores.set(p.id,p.score);
-      return `<div class="player ${p.id===s.you?"is-you":""} ${p.guessed&&s.phase==="drawing"?"has-guessed":""} ${p.id===s.drawer&&s.phase==="drawing"?"is-drawing":""} ${increased?"score-up":""}"><span class="player-rank">${r.rank===1&&p.score>0?"♛":`#${r.rank}`}</span><div class="avatar">${safe(p.avatar || "👾")}</div><div class="player-info"><div class="player-name" title="${safe(p.name)}">${safe(p.name)}${p.id === s.you ? ' <small>YOU</small>' : ""}</div><div class="player-role">${!p.connected ? "○ Offline" : p.guessed && s.phase === "drawing" ? "✓ Got it!" : p.id === s.drawer && s.phase === "drawing" ? "✎ Making a mess" : p.udp ? "Ready to rumble" : "Connecting…"}${p.id === s.host ? " · Host" : ""}</div><div class="score-track"><i style="width:${p.score/high*100}%"></i></div></div><div class="player-score">${p.score}<small>PTS</small>${increased?'<span class="score-spark">✦</span>':""}</div></div>`;
+      const accent = {"👾":"#b99aff","🐸":"#a7d66d","🦊":"#f7b574","🐼":"#aebee8","🐙":"#ed9ec4","👻":"#b4dcd5","🤖":"#80cbd9","🌵":"#97c79a"}[p.avatar] || "#b99aff";
+      const role = !p.connected ? "○ Disconnected" : !p.udp ? "◌ Restoring connection" : p.guessed && s.phase === "drawing" ? "✓ Nailed it!" : p.id === s.drawer && s.phase === "picking" ? "✧ Picking a word" : p.id === s.drawer && s.phase === "drawing" ? "✎ Making a mess" : s.phase === "lobby" ? "Ready to rumble" : "Ready to guess";
+      return `<div style="--player-accent:${accent}" class="player ${p.id===s.you?"is-you":""} ${p.guessed&&s.phase==="drawing"?"has-guessed":""} ${p.id===s.drawer&&s.phase==="drawing"?"is-drawing":""} ${p.id===s.drawer&&s.phase==="picking"?"is-picking":""} ${!p.connected||!p.udp?"is-offline":""} ${increased?"score-up":""}"><span class="player-rank">${r.rank===1&&p.score>0?"♛":`#${r.rank}`}</span><div class="avatar">${safe(p.avatar || "👾")}</div><div class="player-info"><div class="player-name" title="${safe(p.name)}">${safe(p.name)}${p.id === s.you ? ' <small>YOU</small>' : ""}</div><div class="player-role">${role}${p.id === s.host ? " · Host" : ""}</div><div class="score-track"><i style="width:${p.score/high*100}%"></i></div></div><div class="player-score">${p.score}<small>PTS</small>${increased?'<span class="score-spark">✦</span>':""}</div></div>`;
     }).join("");
     lastPlayersKey = playersKey;
   }
   $("roundLabel").textContent = ["lobby", "finished"].includes(s.phase) ? (s.phase === "lobby" ? "WAITING ROOM" : "THAT’S A WRAP") : `ROUND ${s.round} OF ${s.rounds} · ${s.theme.toUpperCase()}`;
   const drawer = s.players.find(p => p.id === s.drawer);
-  $("turnLabel").textContent = s.phase === "drawing" ? (s.drawer === s.you ? "Your moment. Make your mark." : `${drawer?.name || "A friend"} is drawing…`) : s.phase === "intermission" ? "A round of applause, please." : s.phase === "finished" ? "Good drawings. Better company." : "Gather your people.";
-  $("timer").textContent = s.phase === "drawing" || s.phase === "intermission" ? Math.ceil(s.remaining) : "—";
+  $("turnLabel").textContent = s.phase === "picking" ? (s.drawer === s.you ? "Your turn. Pick your word!" : `${drawer?.name || "A player"} is picking a word!`) : s.phase === "drawing" ? (s.drawer === s.you ? "Your moment. Make your mark." : `${drawer?.name || "A friend"} is drawing…`) : s.phase === "intermission" ? "A round of applause, please." : s.phase === "finished" ? "Good drawings. Better company." : "Gather your people.";
+  $("timer").textContent = ["picking", "drawing", "intermission"].includes(s.phase) ? Math.ceil(s.remaining) : "—";
   $("timer").classList.toggle("urgent", s.phase === "drawing" && s.remaining <= 20);
-  $("wordCaption").textContent = s.phase === "drawing" ? s.word ? "YOUR SECRET WORD · DON’T WRITE IT OUT" : "GUESS THE WORD" : "A little imagination goes a long way.";
-  $("wordMask").textContent = s.word || s.mask || "";
+  $("timer").classList.toggle("is-picking", s.phase === "picking");
+  $("timer").classList.toggle("is-frozen", !!s.paused.length);
+  $("timer").setAttribute("aria-label", `${s.paused.length ? "Paused at " : ""}${Math.ceil(s.remaining)} seconds`);
+  $("wordCaption").textContent = s.phase === "picking" ? "CHOOSING THE SECRET WORD" : s.phase === "drawing" ? s.word ? "YOUR SECRET WORD · DON’T WRITE IT OUT" : "GUESS THE WORD" : "A little imagination goes a long way.";
+  $("wordMask").textContent = s.phase === "picking" ? "Get ready…" : s.word || s.mask || "";
   $("pauseBanner").hidden = !s.paused.length;
-  $("pauseText").textContent = `Waiting for ${s.paused.join(", ")}. The timer and all actions are frozen.`;
+  $("game").dataset.paused = String(!!s.paused.length);
+  $("pauseText").textContent = `Waiting for ${s.paused.join(", ")}. Both connections must return. The timer, drawing and guesses are frozen.`;
+  $("continueButton").textContent = s.paused.length === 1 ? `Skip ${s.paused[0]}` : "Skip disconnected players";
   $("pauseControls").hidden = !host;
-  const blocked = s.paused.length || socket?.readyState !== WebSocket.OPEN || s.phase === "intermission" || (s.phase === "drawing" && (s.drawer === s.you || me?.guessed));
+  const blocked = s.paused.length || socket?.readyState !== WebSocket.OPEN || ["picking", "intermission"].includes(s.phase) || (s.phase === "drawing" && (s.drawer === s.you || me?.guessed));
   $("chatInput").disabled = !!blocked; $("chatForm").querySelector("button").disabled = !!blocked;
-  $("chatInput").placeholder = s.paused.length ? "Game paused…" : me?.guessed && s.phase === "drawing" ? "You got it! Sit tight." : s.drawer === s.you && s.phase === "drawing" ? "Let your drawing do the talking." : "Type a guess…";
-  $("chatHint").textContent = s.phase === "drawing" && me?.guessed ? "Chat returns next turn. Keep the secret!" : "Correct answers stay secret.";
+  $("chatInput").placeholder = s.paused.length ? "Game paused…" : s.phase === "picking" ? "Wait for the word to be picked…" : me?.guessed && s.phase === "drawing" ? "You got it! Sit tight." : s.drawer === s.you && s.phase === "drawing" ? "Let your drawing do the talking." : "Type a guess…";
+  $("chatHint").textContent = s.phase === "picking" ? "Guessing opens when the drawing starts." : s.phase === "drawing" && me?.guessed ? "Chat returns next turn. Keep the secret!" : "Correct answers stay secret.";
   const drawing = !!canDraw();
   document.querySelectorAll("[data-tool], .color").forEach(b => { b.disabled = !drawing; });
   $("clearButton").disabled = !drawing;
   overlay.style.cursor = drawing ? tool === "fill" ? "cell" : "crosshair" : "default";
   $("drawHint").textContent = drawing ? "Make your mark." : s.phase === "drawing" ? "Trust your instincts." : "Make yourself comfortable.";
   $("stageCover").hidden = s.phase === "drawing";
+  updatePickingControls(s);
   // Rebuild covers only when their meaningful content changes, preserving focus.
-  const key = JSON.stringify([s.phase, s.players.map(p=>[p.name,p.connected,p.udp]), host, s.phase === "finished" ? s.ranking : s.result]);
+  const key = JSON.stringify([s.phase, s.turn, s.choices, s.players.map(p=>[p.id,p.name,p.avatar,p.connected,p.udp]), host, s.host, s.phase === "finished" ? s.ranking : s.result]);
   if (key === lastCoverKey) return;
   lastCoverKey = key;
   let content = "";
   if (s.phase === "lobby") {
-    const ready = s.players.length >= s.min_players && s.players.every(p => p.connected && p.udp);
-    content = `<div class="lobby-avatars">${s.players.map(p=>`<span title="${safe(p.name)}">${safe(p.avatar||"👾")}</span>`).join("")}</div><div class="eyebrow">THE PRE-GAME HUDDLE</div><h2>Your chaos crew.</h2><p>One theme. One turn each.<br>Absolutely no artistic standards.</p>${host ? `<button id="startButton" class="primary" ${ready ? "" : "disabled"}>Everybody in? Let’s draw ↗</button><p class="cover-small">${s.players.length < s.min_players ? `Waiting for at least ${s.min_players} players…` : ready ? "The crew is ready. Unleash the mess." : "Waiting for everyone’s UDP connection…"}</p>` : '<p class="cover-small">The host will start when everyone is ready.</p>'}`;
+    renderLobby(s, host);
+    return;
+  } else if (s.phase === "picking") {
+    const mine = s.drawer === s.you;
+    content = `<div class="picking-scene ${mine ? "your-pick" : "their-pick"}"><div class="pick-eyebrow">ROUND ${s.round} · ${safe(s.theme.toUpperCase())}</div><div class="pick-clock"><span id="pickCountdown">${Math.ceil(s.remaining)}</span></div>${mine ? `<h2>Pick your <em>masterpiece.</em></h2><p class="pick-subtitle">Choose what you want to draw. Only you can see these.</p><div class="word-choices">${(s.choices || []).map((word,i)=>`<button class="word-option" style="--option-index:${i}" data-word="${safe(word)}"><span class="option-number">0${i+1}</span><strong>${safe(word)}</strong><span class="option-arrow" aria-hidden="true">↗</span></button>`).join("")}</div><p class="pick-note">Click a word or press 1–3. A random choice is made at zero.</p>` : `<div class="picker-portrait"><span>${safe(drawer?.avatar || "👾")}</span><i>?</i><i>?</i><i>?</i></div><h2>${safe(drawer?.name || "A player")} is<br><em>picking a word!</em></h2><p class="pick-subtitle">The next masterpiece is loading. Get ready to guess.</p><div class="waiting-dots pick-dots" aria-hidden="true"><i></i><i></i><i></i></div>`}</div>`;
   } else if (s.phase === "intermission") {
-    content = `<div class="cover-icon">✦</div><div class="eyebrow">THE WORD WAS</div><h2>${safe(s.result?.word)}</h2><p>${s.result?.skipped ? "The drawer left. Moving along!" : `${safe(s.result?.drawer)} earned <b>${s.result?.bonus} drawing points</b>.<br>${s.result?.guessed} ${s.result?.guessed === 1 ? "person guessed" : "people guessed"} correctly.`}</p><p class="cover-small">Next turn coming up…</p>`;
+    content = `<div class="cover-icon">✦</div><div class="eyebrow">${s.result?.word ? "THE WORD WAS" : "TURN SKIPPED"}</div><h2>${safe(s.result?.word || "On to the next artist.")}</h2><p>${s.result?.skipped ? `${safe(s.result?.drawer)} was skipped. No drawing bonus awarded.` : `${safe(s.result?.drawer)} earned <b>${s.result?.bonus} drawing points</b>.<br>${s.result?.guessed} ${s.result?.guessed === 1 ? "person guessed" : "people guessed"} correctly.`}</p><p class="cover-small">Next turn coming up…</p>`;
   } else if (s.phase === "finished") {
     const top = s.ranking.filter(p => p.rank <= 3);
     content = `<div class="eyebrow">THE DOODLE HALL OF FAME</div><h2>Certified mess legends.</h2><div class="podium">${top.map(p => `<div class="podium-person place-${p.rank}"><span class="place">${["","🥇","🥈","🥉"][p.rank]}</span><span class="podium-avatar">${safe(p.avatar||"👾")}</span><b>${safe(p.name)}</b><small>${p.score} points</small><span class="podium-rank">#${p.rank}</span></div>`).join("")}</div><div class="final-scores">${s.ranking.map(p => `${safe(p.name)} · ${p.score}`).join(" &nbsp; / &nbsp; ")}</div>${host ? `<button id="startButton" class="primary" ${s.players.length >= s.min_players && s.players.every(p=>p.connected && p.udp) ? "" : "disabled"}>Rematch. Settle the score. ↗</button>` : '<p class="cover-small">Waiting for the host to start a rematch.</p>'}`;
   }
   $("stageContent").innerHTML = content;
+  document.querySelectorAll(".word-option").forEach(b => b.onclick = () => pickWord(b.dataset.word));
+  updatePickingControls(s);
   if ($("startButton")) $("startButton").onclick = () => send({type:"start"});
+}
+
+function updatePickingControls(s) {
+  if (s.phase !== "picking") return;
+  if ($("pickCountdown")) $("pickCountdown").textContent = Math.ceil(s.remaining);
+  const scene = document.querySelector(".picking-scene");
+  if (scene) scene.style.setProperty("--pick-progress", `${Math.max(0,s.remaining/(s.pick_seconds || 10)*100)}%`);
+  document.querySelectorAll(".word-option").forEach(b => b.disabled = !!s.paused.length || socket?.readyState !== WebSocket.OPEN || pendingWordTurn === s.turn);
+}
+function pickWord(word) {
+  if (!state || state.phase !== "picking" || state.drawer !== state.you || state.paused.length || pendingWordTurn === state.turn) return;
+  if (send({type:"choose_word", turn:state.turn, word})) {
+    pendingWordTurn = state.turn;
+    updatePickingControls(state);
+  }
+}
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) || document.querySelector("dialog[open]")) return;
+  if (state?.phase === "picking" && state.drawer === state.you && /^[123]$/.test(e.key)) {
+    const word = state.choices?.[Number(e.key)-1];
+    if (word) {e.preventDefault();pickWord(word);}
+  }
+});
+
+// Keep existing seats mounted as connections become ready, so idle animations
+// and keyboard focus survive state updates. Only newly joined players pop in.
+function renderLobby(s, host) {
+  const root = $("stageContent");
+  if (!root.querySelector(".lobby-scene")) {
+    root.innerHTML = `<div class="lobby-scene"><div class="lobby-eyebrow"><span class="waiting-dots" aria-hidden="true"><i></i><i></i><i></i></span> THE WAITING ROOM</div><h2>Meet your<br><em>competition.</em></h2><div class="crew-lineup" aria-label="Players in the waiting room"></div><div class="lobby-rules"><span id="lobbyTheme"></span><span>◷ 80 seconds</span><span id="lobbyTurns"></span></div><div class="lobby-status" role="status"></div><div class="lobby-actions"></div><span class="lobby-scribble scribble-left" aria-hidden="true">✳</span><span class="lobby-scribble scribble-right" aria-hidden="true">✧</span><span class="lobby-floor" aria-hidden="true"></span></div>`;
+  }
+  const scene = root.querySelector(".lobby-scene"), lineup = root.querySelector(".crew-lineup");
+  const existing = new Map(Array.from(lineup.querySelectorAll("[data-player]")).map(e => [e.dataset.player, e]));
+  const firstRoster = !lineup.dataset.mounted;
+  lineup.querySelectorAll(".empty-seat").forEach(e => e.remove());
+  const ids = new Set(s.players.map(p => p.id));
+  existing.forEach((el, id) => { if (!ids.has(id)) el.remove(); });
+  let arrived = false;
+  s.players.forEach((p, i) => {
+    let seat = existing.get(p.id);
+    if (!seat) {
+      seat = document.createElement("div"); seat.className = "crew-seat"; seat.dataset.player = p.id;
+      seat.innerHTML = '<div class="crew-card"><span class="crew-host" title="Room host">♛</span><span class="crew-face"></span><span class="crew-check" aria-hidden="true">✓</span></div><span class="crew-shadow" aria-hidden="true"></span><b class="crew-name"></b><small class="crew-state"></small>';
+      arrived = true;
+    }
+    seat.style.setProperty("--seat-index", i); seat.style.setProperty("--seat-tilt", `${[-7,5,-4,7,-3][i]}deg`);
+    seat.classList.toggle("seat-ready", p.connected && p.udp);
+    seat.classList.toggle("seat-offline", !p.connected);
+    seat.querySelector(".crew-face").textContent = p.avatar || "👾";
+    seat.querySelector(".crew-host").hidden = p.id !== s.host;
+    seat.querySelector(".crew-name").textContent = p.name + (p.id === s.you ? " (you)" : "");
+    seat.querySelector(".crew-name").title = p.name;
+    seat.querySelector(".crew-state").textContent = !p.connected ? "Offline" : p.udp ? "Ready!" : "Connecting…";
+    // Appending an existing child can restart CSS motion in some browsers.
+    if (lineup.children[i] !== seat) lineup.insertBefore(seat, lineup.children[i] || null);
+  });
+  for (let i = s.players.length; i < s.max_players; i++) {
+    const seat = document.createElement("div"); seat.className = "crew-seat empty-seat";
+    seat.style.setProperty("--seat-index", i); seat.style.setProperty("--seat-tilt", `${[-7,5,-4,7,-3][i]}deg`);
+    seat.innerHTML = '<div class="crew-card"><span class="empty-face" aria-hidden="true">+</span></div><span class="crew-shadow" aria-hidden="true"></span><b class="crew-name">Open seat</b><small class="crew-state">Bring a friend</small>';
+    lineup.append(seat);
+  }
+  lineup.dataset.mounted = "true";
+  if (arrived && !firstRoster) experience.play("pop");
+  const ready = s.players.length >= s.min_players && s.players.every(p => p.connected && p.udp);
+  scene.classList.toggle("is-ready", ready);
+  root.querySelector("#lobbyTheme").textContent = `${{Animals:"🐈",Technology:"🤖",Food:"🍕"}[s.theme] || "✎"} ${s.theme}`;
+  root.querySelector("#lobbyTurns").textContent = `${s.players.length} ${s.players.length === 1 ? "player" : "players"} · ${s.players.length} ${s.players.length === 1 ? "turn" : "turns"}`;
+  root.querySelector(".lobby-status").textContent = s.players.length < s.min_players ? "One more player and it’s on." : !ready ? "Getting everyone connected…" : host ? "Everyone’s ready. The first drawer is picked at random." : `Waiting for ${s.players.find(p=>p.id===s.host)?.name || "the host"} to start…`;
+  const actions = root.querySelector(".lobby-actions");
+  if (actions.dataset.host !== String(host)) {
+    actions.innerHTML = `${host ? '<button id="startButton" class="primary lobby-start">Let’s draw <span>↗</span></button>' : '<span class="lobby-wait"><i></i> Hang tight. We’re nearly there.</span>'}<button id="lobbyInvite" class="lobby-invite">Invite a friend <span>+</span></button>`;
+    actions.dataset.host = String(host);
+    root.querySelector("#lobbyInvite").onclick = () => $("shareButton").click();
+    if (root.querySelector("#startButton")) root.querySelector("#startButton").onclick = () => send({type:"start"});
+  }
+  if (root.querySelector("#startButton")) root.querySelector("#startButton").disabled = !ready;
 }
 
 function addChat(message) {

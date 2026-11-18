@@ -17,6 +17,7 @@ Every browser has its own WebSocket and its own WebRTC connection **to the serve
 |---|---|---|
 | Session nicknames, create/join/leave, start/end | WebSocket over TCP | Ordered, reliable control messages |
 | Chat, guesses, hints, scores, pause/resume | WebSocket over TCP | Losing or duplicating a guess must not change scoring |
+| Private word offers and the drawer's selection | WebSocket over TCP | The server must reliably validate one of three offered unused words before starting the drawing timer |
 | WebRTC offer/answer | WebSocket over TCP | Reliable connection negotiation |
 | Live brush/eraser previews | WebRTC data channel, SCTP/DTLS over UDP | Unordered delivery and zero retransmissions avoid waiting for stale ink |
 | Completed strokes, bucket fill, clear, recovery log | WebSocket over TCP | Everyone must eventually have the same canvas |
@@ -29,20 +30,26 @@ There is no automatic TCP replacement for UDP preview traffic. **Network details
 
 ## Simultaneous players and authority
 
-An asyncio event loop handles socket I/O and the turn ticker concurrently. Room mutations are serialized under an asyncio lock; the server's acceptance order determines guess placement. A monotonic clock drives the timer. Clients display server time; they cannot award themselves points, choose a secret word, reveal hints early, or draw during someone else's turn.
+An asyncio event loop handles socket I/O and the turn ticker concurrently. The server handles game actions under an asyncio lock; its acceptance order determines guess placement. A monotonic clock drives the timer. Clients display server time; they cannot award themselves points, invent an answer outside the offered choices, reveal hints early, or draw during someone else's turn.
 
-The answer is sent only to the drawer. Guess text is checked before publishing chat. Correct guesses and close guesses are replaced with public success announcements or private feedback respectively.
+The server begins every turn in `picking` phase with a 10-second budget. Only the drawer receives the `choices` list. A `choose_word` message contains the turn ID and one offered word. The server checks phase, player, turn and word before switching to `drawing` with a fresh 80 seconds. Timeout selects one of the offers. Selected answers are excluded from later offers in the same game. Other clients receive no choices or full answer. Guess text is checked before publishing chat. Correct guesses and close guesses are replaced with public success announcements or private feedback respectively.
 
-Heartbeat WebSockets detect closed/unresponsive connections. Detection of a physical outage is not instantaneous; the game freezes when the server detects it. Reconnect tokens restore active sessions without passwords. Tokens are bearer credentials kept in the browser tab's session storage, not in room invite links.
+Heartbeat WebSockets detect closed/unresponsive connections. Data-channel close and peer failure handling also detect loss of the drawing path. Detection of a physical outage is not instantaneous; the game freezes when the server detects it. Picking, drawing and intermission timers stop, and the server rejects choices, guesses and drawing while paused. Reconnect tokens restore active sessions without passwords. Tokens are bearer credentials kept in the browser tab's session storage, not in room invite links. Reconnecting the WebSocket alone does not unpause: the drawing channel must complete its hello exchange too. The host can wait or skip disconnected players; skipping the drawer ends the turn without bonus, including a turn still awaiting a word. Skipped clients are removed and cannot resume the active game.
+
+Normal `join` messages also pass through `Room.join()`. In an active game, it restores only a disconnected, active player whose normalized nickname matches a reserved seat in `pause_for`. This handles a missing browser token or an older client that submits Join instead of Resume. It preserves the player ID, avatar, points and turn, rotates the reconnect token, and remains paused until the new drawing channel is ready. New names, connected seats and explicitly skipped seats are rejected. Registration is temporary nickname identification, not password authentication.
+
+HTML and static browser files are sent with no-store caching headers. Versioned asset URLs bypass older cached menu scripts when the page reloads.
 
 ## Main LAN demonstration
+
+Clicking Leave room during picking, drawing or a break uses the same pause-and-reserve behavior as a lost connection. The server sends `left` with `resumable: true`; the client retains its session token and offers a rejoin button. Only the host's explicit Skip permanently removes a player from an active game. With two players, Leave alone must not end the game; a host Skip may end it because fewer than two active seats remain. Leaving a lobby or finished game removes the seat immediately.
 
 1. Use the assignment's **four separate computers**: the server on one, a browser client on each of the other three. The server computer can also open a browser client, giving four players.
 2. Use the same Wi-Fi/hotspot/LAN. Confirm that peer-device access is allowed.
 3. Launch `GuessTheMess.exe` on the host.
 4. Share the **Wi-Fi or Ethernet** address printed in the console, not `localhost`, `127.0.0.1`, a Docker/virtual-machine address, or an unrelated VPN address.
 5. Open the host form, select Wi-Fi / LAN and a theme, then create the room. Copy Invite shows the selected host network address. Players open it and join with nicknames.
-6. Confirm each player's green UDP status. Start and demonstrate drawing, public wrong guesses, hidden correct guesses, hints, turn rotation, and final scores.
+6. Confirm each player's green UDP status. Start, show the drawer's three private choices and the other clients' picking screen, then choose and demonstrate drawing, public wrong guesses, hidden correct guesses, hints, turn rotation, and final scores. A selection timeout chooses automatically.
 7. Temporarily interrupt a player's connection or refresh their tab to demonstrate freeze and return. For Continue without them, disconnect a non-host player and use the host's controls.
 
 LAN-only play works without external internet once packages are installed. No assets load from a CDN.
@@ -54,7 +61,7 @@ LAN-only play works without external internet once packages are installed. No as
 - **Windows firewall prompt:** permit the actual server executable on the approved profile. Do not disable the entire firewall. Institution-managed firewall changes may require IT assistance.
 - **Invite copying:** the room stores the selected server address, so Copy Invite works even when the host opened localhost. Refresh the host form if interfaces change before creation. If the chosen address changes afterward, create a new room. A manual-copy prompt is provided if clipboard copying is unavailable.
 - **Port in use:** stop the older server or launch with `--port 8080`, then share the new port.
-- **Cannot reconnect:** use the same tab. If the server restarted or the host continued without that player, the old session is no longer valid; join a waiting/finished room again.
+- **Cannot reconnect:** enter the original nickname and room code and press Let me in, or use the same tab's automatic reconnect/rejoin button. Another tab/browser can restore a disconnected reserved seat too. A connected seat cannot be taken over. If the server restarted or the host skipped that player, the old active-game identity is no longer valid; join a waiting/finished room again.
 - **Browser issues:** use current Edge, Chrome, or Firefox with JavaScript/WebRTC enabled. This game does not request capture permissions. Managed browser policies can disable WebRTC.
 
 The app uses plain HTTP/WebSocket on the local/private network; WebRTC drawing is DTLS-encrypted. This is a classroom/LAN project, not a hardened public hosting service. Do not publish port 8000 to the public internet as part of the default setup.
